@@ -129,8 +129,8 @@ type Result struct {
 	// Created is true when this call added a contract the registry had not
 	// seen before.
 	Created bool `json:"created"`
-	// Changed is true when the contract's WASM hash differed from what was
-	// stored, so a new interface version was recorded.
+	// Changed is true when the contract's interface version identifier differs
+	// from what was stored, so a new interface version was recorded.
 	Changed bool `json:"changed"`
 }
 
@@ -246,9 +246,14 @@ func (r *Registry) Register(ctx context.Context, contractID string) (*Result, er
 		return nil, err
 	}
 
-	iface, err := r.decoder.Decode(contract.Wasm)
-	if err != nil {
-		return nil, fmt.Errorf("registry: decoding %s: %w", contractID, err)
+	var iface *model.Interface
+	if contract.Builtin {
+		iface = model.StellarAssetContractInterface()
+	} else {
+		iface, err = r.decoder.Decode(contract.Wasm)
+		if err != nil {
+			return nil, fmt.Errorf("registry: decoding %s: %w", contractID, err)
+		}
 	}
 
 	record := store.Contract{
@@ -275,7 +280,7 @@ func (r *Registry) Register(ctx context.Context, contractID string) (*Result, er
 	r.log.InfoContext(ctx, "registered contract",
 		"contract_id", contractID,
 		"network", network,
-		"wasm_hash", contract.WasmHash,
+		"interface_version", contract.WasmHash,
 		"created", result.Created,
 		"changed", result.Changed,
 		"functions", len(iface.Functions),
@@ -383,7 +388,7 @@ func (r *Registry) Refresh(ctx context.Context, contractID string) (*Result, err
 		}
 
 		r.log.DebugContext(ctx, "contract unchanged",
-			"contract_id", contractID, "network", network, "wasm_hash", currentHash)
+			"contract_id", contractID, "network", network, "interface_version", currentHash)
 
 		return &Result{Contract: *updated, Interface: stored.Interface}, nil
 	}
@@ -393,9 +398,14 @@ func (r *Registry) Refresh(ctx context.Context, contractID string) (*Result, err
 		return nil, err
 	}
 
-	iface, err := r.decoder.Decode(contract.Wasm)
-	if err != nil {
-		return nil, fmt.Errorf("registry: decoding %s: %w", contractID, err)
+	var iface *model.Interface
+	if contract.Builtin {
+		iface = model.StellarAssetContractInterface()
+	} else {
+		iface, err = r.decoder.Decode(contract.Wasm)
+		if err != nil {
+			return nil, fmt.Errorf("registry: decoding %s: %w", contractID, err)
+		}
 	}
 
 	record := *existing
@@ -412,8 +422,8 @@ func (r *Registry) Refresh(ctx context.Context, contractID string) (*Result, err
 	r.log.InfoContext(ctx, "contract upgraded",
 		"contract_id", contractID,
 		"network", network,
-		"from_wasm_hash", existing.CurrentWasmHash,
-		"to_wasm_hash", contract.WasmHash,
+		"from_interface_version", existing.CurrentWasmHash,
+		"to_interface_version", contract.WasmHash,
 	)
 
 	return &Result{Contract: *updated, Interface: iface, Changed: true}, nil
