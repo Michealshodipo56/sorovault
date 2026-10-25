@@ -89,19 +89,11 @@ type listResponse struct {
 }
 
 type contractResponse struct {
-	ContractID   string    `json:"contract_id"`
-	Network      string    `json:"network"`
-	WasmHash     string    `json:"wasm_hash,omitempty"`
-	InterfaceID  string    `json:"interface_id,omitempty"`
-	Builtin      bool      `json:"builtin,omitempty"`
-	Name         string    `json:"name,omitempty"`
-	SourceURL    string    `json:"source_url,omitempty"`
-	SourceCommit string    `json:"source_commit,omitempty"`
-	FirstSeen    time.Time `json:"first_seen"`
-	DecodedAt    time.Time `json:"decoded_at"`
 	ContractID   string     `json:"contract_id"`
 	Network      string     `json:"network"`
-	WasmHash     string     `json:"wasm_hash"`
+	WasmHash     string     `json:"wasm_hash,omitempty"`
+	InterfaceID  string     `json:"interface_id,omitempty"`
+	Builtin      bool       `json:"builtin,omitempty"`
 	Name         string     `json:"name,omitempty"`
 	SourceURL    string     `json:"source_url,omitempty"`
 	SourceCommit string     `json:"source_commit,omitempty"`
@@ -116,8 +108,8 @@ type contractResponse struct {
 }
 
 type functionResponse struct {
-	ContractID string `json:"contract_id"`
-	Network    string `json:"network"`
+	ContractID  string `json:"contract_id"`
+	Network     string `json:"network"`
 	WasmHash    string `json:"wasm_hash,omitempty"`
 	InterfaceID string `json:"interface_id,omitempty"`
 	Builtin     bool   `json:"builtin,omitempty"`
@@ -130,8 +122,8 @@ type functionResponse struct {
 }
 
 type functionListResponse struct {
-	ContractID string            `json:"contract_id"`
-	Network    string            `json:"network"`
+	ContractID  string            `json:"contract_id"`
+	Network     string            `json:"network"`
 	WasmHash    string            `json:"wasm_hash,omitempty"`
 	InterfaceID string            `json:"interface_id,omitempty"`
 	Builtin     bool              `json:"builtin,omitempty"`
@@ -141,6 +133,13 @@ type functionListResponse struct {
 type functionSummary struct {
 	Name      string `json:"name"`
 	Signature string `json:"signature"`
+}
+
+type eventListResponse struct {
+	ContractID string        `json:"contract_id"`
+	Network    string        `json:"network"`
+	WasmHash   string        `json:"wasm_hash"`
+	Events     []model.Event `json:"events"`
 }
 
 type versionsResponse struct {

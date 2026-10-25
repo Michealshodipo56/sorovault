@@ -22,7 +22,7 @@ type Interface struct {
 
 	// Builtin marks interfaces supplied by the protocol rather than decoded
 	// from uploaded WASM. Source cites the normative interface specification.
-	Builtin bool `json:"builtin,omitempty"`
+	Builtin bool   `json:"builtin,omitempty"`
 	Source  string `json:"source,omitempty"`
 
 	// Meta holds the contract's build metadata, decoded from the WASM's

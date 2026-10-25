@@ -309,7 +309,7 @@ func TestFetchContractNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), testContractID)
 }
 
-func TestFetchContractNoWasm(t *testing.T) {
+func TestFetchContractStellarAssetIsBuiltin(t *testing.T) {
 	t.Parallel()
 
 	fake := newFakeRPC(t)
@@ -319,9 +319,15 @@ func TestFetchContractNoWasm(t *testing.T) {
 	f := stellar.NewRPCFetcher(srv.URL, srv.Client())
 	t.Cleanup(func() { _ = f.Close() })
 
-	_, err := f.FetchContract(context.Background(), testContractID)
-	require.ErrorIs(t, err, stellar.ErrNoWasm,
-		"a Stellar asset contract has no module and must be distinguishable from a missing one")
+	contract, err := f.FetchContract(context.Background(), testContractID)
+	require.NoError(t, err, "a Stellar asset contract is served from the built-in interface")
+	assert.True(t, contract.Builtin)
+	assert.Equal(t, stellar.BuiltinSACIdentifier, contract.WasmHash)
+	assert.Empty(t, contract.Wasm, "an asset contract has no module")
+
+	hash, err := f.WasmHash(context.Background(), testContractID)
+	require.NoError(t, err)
+	assert.Equal(t, stellar.BuiltinSACIdentifier, hash)
 }
 
 // TestFetchContractMissingCodeEntry covers an instance that points at a WASM

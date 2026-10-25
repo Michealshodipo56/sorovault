@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/soroworks/sorovault/internal/api"
 	"github.com/soroworks/sorovault/internal/model"
 	"github.com/soroworks/sorovault/internal/registry"
 	"github.com/soroworks/sorovault/internal/spec"
@@ -325,12 +326,27 @@ func (s *Server) contract(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Gather all networks this contract is registered on.
+	allNetworks, err := s.reg.Store().ListNetworks(r.Context())
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	contractNetworks := make([]string, 0, len(allNetworks))
+	for _, net := range allNetworks {
+		_, err2 := s.reg.Store().GetContract(r.Context(), net, contractID)
+		if err2 == nil {
+			contractNetworks = append(contractNetworks, net)
+		}
+	}
+
 	s.render(w, r, "contract.html", contractData{
 		Contract:  *contract,
 		Spec:      *stored,
 		Versions:  versions,
 		Interface: stored.Interface,
 		IsCurrent: stored.WasmHash == contract.CurrentWasmHash,
+		Networks:  contractNetworks,
 	})
 }
 
@@ -400,6 +416,7 @@ type contractData struct {
 	Versions  []store.SpecVersion
 	Interface *model.Interface
 	IsCurrent bool
+	Networks  []string
 }
 
 // render writes a template, buffering it first so that a failure midway
@@ -495,6 +512,10 @@ func funcs() template.FuncMap {
 			}
 			return s[:n] + "…"
 		},
+		// abiFilename is the API's own rule for naming a downloaded
+		// interface, so the page cannot promise a file name the response
+		// header does not use.
+		"abiFilename": api.ABIFilename,
 		"hasTypes": func(t model.Types) bool {
 			return len(t.Structs)+len(t.Unions)+len(t.Enums)+len(t.ErrorEnums) > 0
 		},

@@ -19,7 +19,6 @@
   {{if .Interface.Builtin}}
   <div><dt>Interface</dt><dd><span class="badge">Built-in Stellar Asset Contract</span> <code>{{.Spec.WasmHash}}</code></dd></div>
   {{else}}
-  <div><dt>WASM hash</dt><dd class="mono break">{{.Spec.WasmHash}}</dd></div>
   <div>
     <dt>WASM hash</dt>
     <dd class="mono break">
@@ -27,6 +26,7 @@
       <button class="copy" type="button" data-copy="#wasm-hash" aria-label="Copy WASM hash">{{template "copy_icon"}}</button>
     </dd>
   </div>
+  {{end}}
   {{if .Interface.EnvMeta}}
   <div><dt>Protocol</dt><dd class="mono">{{.Interface.EnvMeta.InterfaceVersion}}</dd></div>
   {{end}}
@@ -196,6 +196,8 @@
 <p class="jsonfoot">
   Full ABI as JSON:
   <a class="mono" href="/api/contracts/{{.Contract.ContractID}}?network={{.Contract.Network}}{{if not .Interface.Builtin}}&amp;wasm_hash={{.Spec.WasmHash}}{{end}}">/api/contracts/{{short .Contract.ContractID 12}}</a>
+  · Download:
+  <a class="mono" href="/api/contracts/{{.Contract.ContractID}}?network={{.Contract.Network}}{{if not .Interface.Builtin}}&amp;wasm_hash={{.Spec.WasmHash}}{{end}}&amp;download=1">{{abiFilename .Contract.ContractID .Spec.WasmHash}}</a>
   · Typed client:
   <a href="/api/contracts/{{.Contract.ContractID}}/client.ts?network={{.Contract.Network}}{{if not .Interface.Builtin}}&amp;wasm_hash={{.Spec.WasmHash}}{{end}}&amp;download=1">TypeScript</a>
 </p>
