@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/soroworks/sorovault/internal/api"
+	"github.com/soroworks/sorovault/internal/model"
 	"github.com/soroworks/sorovault/internal/registry"
 	"github.com/soroworks/sorovault/internal/spec"
 	"github.com/soroworks/sorovault/internal/stellar/stellartest"
@@ -1118,4 +1119,41 @@ func TestRegisterStellarAssetContract(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, string(raw))
 	assert.Contains(t, string(raw), `export const interfaceId = "builtin:stellar-asset-contract:v1";`)
 	assert.NotContains(t, string(raw), "export const wasmHash")
+}
+
+func TestListContractsFiltersByImplementedStandard(t *testing.T) {
+	h := newHarness(t)
+	defer h.server.Close()
+
+	functions := make([]model.Function, 0, len(spec.SEP41.Functions))
+	for _, required := range spec.SEP41.Functions {
+		inputs := make([]model.Param, 0, len(required.Inputs))
+		for i, typ := range required.Inputs {
+			inputs = append(inputs, model.Param{Name: string(rune('a' + i)), Type: typ})
+		}
+		functions = append(functions, model.Function{
+			Name: required.Name, Inputs: inputs, Outputs: append([]model.Type(nil), required.Outputs...),
+		})
+	}
+	tokenInterface := &model.Interface{ABIVersion: model.ABIVersion, Functions: functions}
+	plainInterface := &model.Interface{ABIVersion: model.ABIVersion, Functions: []model.Function{
+		{Name: "transfer", Inputs: []model.Param{{Name: "amount", Type: model.Scalar(model.KindU32)}}},
+	}}
+
+	ctx := context.Background()
+	require.NoError(t, h.store.Save(ctx, store.Contract{ContractID: idA, Network: "testnet", CurrentWasmHash: "token-hash"}, tokenInterface))
+	require.NoError(t, h.store.Save(ctx, store.Contract{ContractID: idB, Network: "testnet", CurrentWasmHash: "plain-hash"}, plainInterface))
+
+	resp, raw := h.do(t, http.MethodGet, "/api/contracts?network=testnet&implements=sep41", "")
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(raw))
+
+	var body struct {
+		Contracts []store.Contract `json:"contracts"`
+		Total     int              `json:"total"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &body))
+	require.Equal(t, 1, body.Total)
+	require.Len(t, body.Contracts, 1)
+	assert.Equal(t, idA, body.Contracts[0].ContractID)
+	assert.Equal(t, []string{"sep41"}, body.Contracts[0].Implements)
 }

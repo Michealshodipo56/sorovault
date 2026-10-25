@@ -95,6 +95,7 @@ type contractResponse struct {
 	InterfaceID  string     `json:"interface_id,omitempty"`
 	Builtin      bool       `json:"builtin,omitempty"`
 	Name         string     `json:"name,omitempty"`
+	Implements   []string   `json:"implements"`
 	SourceURL    string     `json:"source_url,omitempty"`
 	SourceCommit string     `json:"source_commit,omitempty"`
 	FirstSeen    time.Time  `json:"first_seen"`
