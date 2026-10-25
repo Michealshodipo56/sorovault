@@ -277,10 +277,15 @@ func (r *Registry) Register(ctx context.Context, contractID string) (*Result, er
 		}
 	}
 
+	ledger, err := r.observedLedger(ctx)
+	if err != nil {
+		return nil, err
+	}
 	record := store.Contract{
 		ContractID:      contractID,
 		Network:         network,
 		CurrentWasmHash: contract.WasmHash,
+		ObservedLedger:  ledger,
 	}
 	if err := r.store.Save(ctx, record, iface); err != nil {
 		return nil, err
@@ -441,7 +446,12 @@ func (r *Registry) Refresh(ctx context.Context, contractID string) (*Result, err
 		}
 	}
 
+	ledger, err := r.observedLedger(ctx)
+	if err != nil {
+		return nil, err
+	}
 	record := *existing
+	record.ObservedLedger = ledger
 	record.CurrentWasmHash = contract.WasmHash
 	if err := r.store.Save(ctx, record, iface); err != nil {
 		return nil, err
@@ -489,6 +499,22 @@ func (r *Registry) markMissing(ctx context.Context, network string, existing *st
 		"missing_since", updated.MissingSince)
 
 	return &Result{Contract: *updated, Missing: true}, nil
+}
+
+// observedLedger uses the RPC ledger clock when available. Test fetchers
+// without a ledger source retain null for compatibility.
+func (r *Registry) observedLedger(ctx context.Context) (*uint32, error) {
+	f, ok := r.fetcher.(interface {
+		LatestLedger(context.Context) (uint32, error)
+	})
+	if !ok {
+		return nil, nil
+	}
+	ledger, err := f.LatestLedger(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &ledger, nil
 }
 
 // Store exposes the underlying store for read-only queries the API and UI

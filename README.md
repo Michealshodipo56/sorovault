@@ -112,6 +112,18 @@ Worth writing down, because it is the part that is easy to get wrong:
 The SDK does not parse WASM custom sections, so `internal/wasm` implements the
 small amount of the binary format that step 3 needs.
 
+
+### Link previews and sitemaps
+
+Set `PUBLIC_URL` to the externally reachable origin (for example,
+`https://registry.example.org`) to enable the XML sitemap at `/sitemap.xml`
+and canonical Open Graph URLs on contract pages. Contract pages include
+an escaped description with the network, number of functions, and first
+five function names. Sitemaps use `last_refreshed` for `<lastmod>`, and
+registries with over 49,999 contracts use a sitemap index that links to
+bounded pages of at most 50,000 URLs. When `PUBLIC_URL` is unset the
+sitemap is unavailable (404).
+
 ## Quickstart
 
 The fastest path is Docker, which brings up Postgres, applies migrations and
@@ -174,6 +186,9 @@ be overridden in a values file. `RPC_URL`, `NETWORK_PASSPHRASE`, `HTTP_ADDR`,
 `LOG_LEVEL`, `RPC_TIMEOUT`, and `REFRESH_INTERVAL` are exposed under `config`;
 use `extraEnv` for other environment variables. The server and migration Job
 run non-root with read-only root filesystems.
+
+For production deployment — sizing, backups, upgrades and monitoring — see
+[docs/operations.md](docs/operations.md).
 
 ### Running locally
 
@@ -318,7 +333,7 @@ the same **503**, with the `Retry-After` header, inline on the page.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/contracts` | list contracts — `?q=`, `?function=`, `?type=`, `?network=`, `?limit=`, `?offset=` |
+| `GET` | `/api/contracts` | list contracts — `?q=`, `?function=`, `?type=`, `?network=`, `?limit=`, `?cursor=` (`?offset=` still works but is deprecated; a cursor walk sees contracts registered mid-walk exactly once, an offset page repeats and skips them) |
 | `POST` | `/api/contracts` | register a contract — `{"contract_id": "C…"}` |
 | `POST` | `/api/contracts:batch` | register up to 20 contracts in one request — `{"contract_ids": ["C…", "C…"]}` |
 | `POST` | `/api/wasm/{hash}` | catalog uploaded code before a contract runs it |
@@ -339,6 +354,9 @@ the same **503**, with the `Retry-After` header, inline on the page.
 | `GET` | `/api/upgrades.atom` | the same upgrades as an Atom 1.0 feed |
 | `GET` | `/healthz` | liveness |
 | `GET` | `/readyz` | readiness: checks Postgres and RPC |
+
+Worked examples for each route, with requests and abbreviated responses, are in
+[docs/api-recipes.md](docs/api-recipes.md).
 
 `POST /api/contracts` returns **201** when the contract is new and **200** when
 it was already registered, so it is safe to retry. Passing `?wasm_hash=` to a
@@ -486,6 +504,7 @@ sorovault list                      # -q, --function, --type, --network, --limit
 sorovault get <contract_id>         # --function, --wasm-hash, --json
 sorovault versions <contract_id>    # --network, --json
 sorovault codegen <contract_id>     # --lang ts|md|examples; -o, --wasm-hash, --package
+sorovault check-client <client.ts>  # --contract, --api, --network; exits non-zero when stale
 sorovault export [file]             # versioned JSON backup (-o)
 sorovault import [file]             # restore a backup (--merge)
 sorovault serve                     # JSON API + browse UI
@@ -666,6 +685,47 @@ Type mappings follow the Stellar CLI's own bindings (`u64`→`bigint`,
 `BytesN<32>`→`Buffer`, unions as `{ tag, values }`), so values pass through
 the SDK unchanged. It requires `@stellar/stellar-sdk` 14 or later and
 `buffer`.
+
+### Staleness checks
+
+Every generated file embeds the interface version it was built from: the
+`wasmHash` constant next to `contractId` and `networkName`, also visible in
+the file header. When the contract upgrades, a client generated for the old
+interface keeps connecting but calls `vote` against functions that may no
+longer exist. `assertSameWasm(liveHash)` compares the embedded constant with
+the live hash — `GET /api/contracts/{id}` returns `wasm_hash` — warns on a
+mismatch, and returns whether the client still matches:
+
+```ts
+import { assertSameWasm, connect } from "./zkvote";
+
+const meta = await fetch("https://sorovault.example/api/contracts/CDZZ…4PAN").then(r => r.json());
+if (!assertSameWasm(meta.wasm_hash)) {
+  // The contract was upgraded: regenerate, or keep the behavior your
+  // app was built against with the pinned client ?wasm_hash= serves.
+}
+```
+
+Checking is opt-in: nothing happens unless the application calls it, so
+offline use stays untouched, and a project that commits its client keeps it
+byte-identical until the interface actually changes.
+### Checking a committed client for staleness
+
+Generated clients embed the WASM hash they were built for as the `wasmHash`
+constant next to `contractId`. For a project that commits its client,
+`sorovault check-client` compares that file with SoroVault's live hash and
+with the client the server would generate now, and names the functions
+added, removed or changed when the interface moved:
+
+```console
+$ sorovault check-client zkvote.ts --contract CDZZ…4PAN --api https://sorovault.example
+zkvote.ts: added to the interface
+tally: added to the interface
+zkvote.ts is stale; regenerate it and commit the result
+```
+
+It exits non-zero when anything differs, so a CI job can fail politely with
+a reason instead of failing deep inside a call.
 
 ### Packages
 

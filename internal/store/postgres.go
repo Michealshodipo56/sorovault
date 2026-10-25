@@ -150,14 +150,14 @@ func (p *Postgres) Save(ctx context.Context, c Contract, iface *model.Interface)
 	// Re-registering an unchanged contract must not append a duplicate
 	// version, so a repeat hash refreshes the existing row in place.
 	const insertSpec = `
-		INSERT INTO specs (network, contract_id, wasm_hash, spec, symbols)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO specs (network, contract_id, wasm_hash, spec, symbols, observed_ledger)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (network, contract_id, wasm_hash) DO UPDATE SET
 			spec    = EXCLUDED.spec,
 			symbols = EXCLUDED.symbols`
 
 	if _, err := tx.Exec(ctx, insertSpec,
-		c.Network, c.ContractID, c.CurrentWasmHash, body, joinSymbols(iface)); err != nil {
+		c.Network, c.ContractID, c.CurrentWasmHash, body, joinSymbols(iface), c.ObservedLedger); err != nil {
 		return fmt.Errorf("store: saving spec for %s: %w", c.ContractID, err)
 	}
 
@@ -420,16 +420,45 @@ func (p *Postgres) ListContracts(ctx context.Context, f ListFilter) (*ContractPa
 		SELECT network, contract_id, current_wasm_hash, name, source_url, source_commit, first_seen, last_refreshed,
 		       missing_since, implements, symbols, count(*) OVER () AS total
 		FROM matched
-		ORDER BY last_refreshed DESC, contract_id
-		LIMIT $6 OFFSET $7`
+		WHERE ($8::timestamptz IS NULL
+		       OR last_refreshed < $8
+		       OR (last_refreshed = $8
+		           AND (contract_id > $9
+		                OR (contract_id = $9 AND network > $10))))
+		ORDER BY last_refreshed DESC, contract_id, network
+		LIMIT ($6+1) OFFSET $7`
 
-	rows, err := p.pool.Query(ctx, q, f.Network, escapeLike(f.Query), f.Functions, f.Types, f.Implements, f.Limit, f.Offset)
+	// The cursor pages by key: strictly after the row the cursor names,
+	// in the very order the listing sorts. One more row than the page
+	// needs is fetched so the answer can say whether a following page
+	// exists; the extra row is dropped below.
+	var cursorTime *time.Time
+	var cursorID, cursorNetwork string
+	if f.Cursor != "" {
+		if f.Offset != 0 {
+			return nil, errors.New("store: a cursor and an offset are exclusive")
+		}
+		cur, err := decodeListCursor(f.Cursor)
+		if err != nil {
+			return nil, err
+		}
+		t, err := time.Parse(time.RFC3339Nano, cur.LastRefreshed)
+		if err != nil {
+			return nil, fmt.Errorf("%w: bad timestamp %q", ErrMalformedCursor, cur.LastRefreshed)
+		}
+		cursorTime = &t
+		cursorID, cursorNetwork = cur.ContractID, cur.Network
+	}
+
+	rows, err := p.pool.Query(ctx, q, f.Network, escapeLike(f.Query), f.Functions, f.Types, f.Implements, f.Limit, f.Offset,
+		cursorTime, cursorID, cursorNetwork)
 	if err != nil {
 		return nil, fmt.Errorf("store: listing contracts: %w", err)
 	}
 	defer rows.Close()
 
 	page := &ContractPage{Contracts: []Contract{}}
+	fetched := []Contract{}
 	for rows.Next() {
 		var c Contract
 		var symbols string
@@ -441,16 +470,31 @@ func (p *Postgres) ListContracts(ctx context.Context, f ListFilter) (*ContractPa
 			return nil, fmt.Errorf("store: scanning contract: %w", err)
 		}
 		c.Matches = matchSymbols(symbols, f.Query)
-		page.Contracts = append(page.Contracts, c)
 		page.Total = total
+		fetched = append(fetched, c)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("store: listing contracts: %w", err)
 	}
 
+	// The extra row proves a following page exists; everything the page
+	// itself wants is the rows before it.
+	if len(fetched) > f.Limit {
+		fetched = fetched[:f.Limit]
+		last := fetched[len(fetched)-1]
+		next, err := encodeListCursor(last)
+		if err != nil {
+			return nil, err
+		}
+		page.Next = next
+	}
+	if fetched != nil {
+		page.Contracts = fetched
+	}
+
 	// The window function only reports a total on rows that came back, so a
 	// page past the end needs a separate count to stay accurate.
-	if len(page.Contracts) == 0 && f.Offset > 0 {
+	if len(page.Contracts) == 0 && (f.Offset > 0 || f.Cursor != "") {
 		total, err := p.countContracts(ctx, f)
 		if err != nil {
 			return nil, err
@@ -758,7 +802,7 @@ func (p *Postgres) GetSpec(ctx context.Context, network, contractID, wasmHash st
 	// defined by the contract row rather than by insertion order, which
 	// matters if a contract is ever rolled back to an earlier WASM.
 	const q = `
-		SELECT s.id, s.network, s.contract_id, s.wasm_hash, s.spec, s.decoded_at
+		SELECT s.id, s.network, s.contract_id, s.wasm_hash, s.spec, s.decoded_at, s.observed_ledger
 		FROM specs s
 		JOIN contracts c ON c.network = s.network AND c.contract_id = s.contract_id
 		WHERE s.network = $1
@@ -768,7 +812,7 @@ func (p *Postgres) GetSpec(ctx context.Context, network, contractID, wasmHash st
 	var s Spec
 	var body []byte
 	err := p.pool.QueryRow(ctx, q, network, contractID, wasmHash).Scan(
-		&s.ID, &s.Network, &s.ContractID, &s.WasmHash, &body, &s.DecodedAt,
+		&s.ID, &s.Network, &s.ContractID, &s.WasmHash, &body, &s.DecodedAt, &s.ObservedLedger,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, specNotFound(network, contractID, wasmHash)
@@ -790,7 +834,7 @@ func (p *Postgres) GetSpec(ctx context.Context, network, contractID, wasmHash st
 // flagging whichever one the contract currently runs.
 func (p *Postgres) ListVersions(ctx context.Context, network, contractID string) ([]SpecVersion, error) {
 	const q = `
-		SELECT s.wasm_hash, s.decoded_at, s.wasm_hash = c.current_wasm_hash AS current
+		SELECT s.wasm_hash, s.decoded_at, s.wasm_hash = c.current_wasm_hash AS current, s.observed_ledger
 		FROM specs s
 		JOIN contracts c ON c.network = s.network AND c.contract_id = s.contract_id
 		WHERE s.network = $1 AND s.contract_id = $2
@@ -806,7 +850,7 @@ func (p *Postgres) ListVersions(ctx context.Context, network, contractID string)
 	for rows.Next() {
 		var v SpecVersion
 		var versionID string
-		if err := rows.Scan(&versionID, &v.DecodedAt, &v.Current); err != nil {
+		if err := rows.Scan(&versionID, &v.DecodedAt, &v.Current, &v.ObservedLedger); err != nil {
 			return nil, fmt.Errorf("store: scanning version: %w", err)
 		}
 		if versionID == model.StellarAssetContractIdentifier {
