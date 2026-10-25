@@ -74,7 +74,7 @@ type Contract struct {
 	// Matches lists the interface symbols — functions, types, events — that
 	// a search query matched. It is only set on search results, and is
 	// empty when the query matched the contract ID or name instead.
-	Matches    []string `json:"matches,omitempty"`
+	Matches []string `json:"matches,omitempty"`
 }
 
 // symbolSeparator joins symbol names into the single searchable string the
@@ -210,10 +210,10 @@ type ListFilter struct {
 	// Functions restricts results to contracts whose current interface
 	// declares a function with exactly this name. Every name must match,
 	// so two names ask for a contract with both.
-	Functions  []string
+	Functions []string
 	// Types restricts results to contracts whose current interface declares
 	// a user-defined type with exactly this name. Every name must match.
-	Types      []string
+	Types []string
 	// Implements restricts results to contracts implementing every listed standard ID.
 	Implements []string
 	// Limit is the maximum number of rows to return. Zero means

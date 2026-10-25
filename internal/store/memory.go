@@ -519,7 +519,9 @@ func (m *Memory) ListContracts(ctx context.Context, f ListFilter) (*ContractPage
 		if f.Network != "" && c.Network != f.Network {
 			continue
 		}
-		if len(f.Implements) > 0 && !hasAllStandards(c.Implements, f.Implements) { continue }
+		if len(f.Implements) > 0 && !hasAllStandards(c.Implements, f.Implements) {
+			continue
+		}
 		if needle != "" {
 			c.Matches = matchSymbols(m.currentSymbols(k, c.CurrentWasmHash), f.Query)
 			if len(c.Matches) == 0 &&

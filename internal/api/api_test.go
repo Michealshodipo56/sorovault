@@ -1077,7 +1077,6 @@ func (*databaseDownError) Error() string {
 	return "dial tcp: connection string postgres://user:hunter2@db/registry refused"
 }
 
-
 func TestListContractsFiltersByImplementedStandard(t *testing.T) {
 	h := newHarness(t)
 	defer h.server.Close()
@@ -1101,16 +1100,14 @@ func TestListContractsFiltersByImplementedStandard(t *testing.T) {
 	require.NoError(t, h.store.Save(ctx, store.Contract{ContractID: idA, Network: "testnet", CurrentWasmHash: "token-hash"}, tokenInterface))
 	require.NoError(t, h.store.Save(ctx, store.Contract{ContractID: idB, Network: "testnet", CurrentWasmHash: "plain-hash"}, plainInterface))
 
-	resp, err := http.Get(h.server.URL + "/api/contracts?network=testnet&implements=sep41")
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resp, raw := h.do(t, http.MethodGet, "/api/contracts?network=testnet&implements=sep41", "")
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(raw))
 
 	var body struct {
 		Contracts []store.Contract `json:"contracts"`
 		Total     int              `json:"total"`
 	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.NoError(t, json.Unmarshal(raw, &body))
 	require.Equal(t, 1, body.Total)
 	require.Len(t, body.Contracts, 1)
 	assert.Equal(t, idA, body.Contracts[0].ContractID)
